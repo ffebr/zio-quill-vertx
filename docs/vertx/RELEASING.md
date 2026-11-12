@@ -3,9 +3,13 @@
 Repository: `ffebr/zio-quill-vertx`. Maven group: `io.github.ffebr`.
 Registry: `https://maven.pkg.github.com/ffebr/zio-quill-vertx`.
 
-The first planned version is `0.1.0-alpha.1`, tagged `vertx-v0.1.0-alpha.1`.
-A planned version is not evidence that packages have been published; verify
-the Native Vert.x workflow and the fork's Packages page before consuming it.
+The first published version is `0.1.0-alpha.1`, tagged `vertx-v0.1.0-alpha.1`.
+Publication completed on 2026-11-12 through the fork's
+[Native Vert.x workflow](https://github.com/ffebr/zio-quill-vertx/actions/runs/43287367791).
+
+- [Prerelease](https://github.com/ffebr/zio-quill-vertx/releases/tag/vertx-v0.1.0-alpha.1)
+- [Scala 2.13 package](https://github.com/ffebr/zio-quill-vertx/packages/3386899)
+- [Scala 2.12 package](https://github.com/ffebr/zio-quill-vertx/packages/3386904)
 
 ## CI/CD
 

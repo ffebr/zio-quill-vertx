@@ -1,8 +1,17 @@
 # Fork release preparation
 
 Target: `ffebr/zio-quill-vertx`, Maven group `io.github.ffebr`, version
-`0.1.0-alpha.1`, tag `vertx-v0.1.0-alpha.1`. External publication must be
-confirmed by the fork's Native Vert.x workflow; local staging is not a release.
+`0.1.0-alpha.1`, tag `vertx-v0.1.0-alpha.1`.
+
+Publication is confirmed: the fork's
+[Native Vert.x workflow](https://github.com/ffebr/zio-quill-vertx/actions/runs/43287367791)
+completed successfully on 2026-11-12. All eight database/Scala matrix jobs,
+the package upload step and the prerelease creation step succeeded. The
+registry lists all 11 artifacts; the native Scala 2.12 and 2.13 package pages
+both show version `0.1.0-alpha.1`.
+
+Release commit: `ee69343301240cdfc13a4d8a869997d199dc3d33`.
+The immutable tag points at that commit in `ffebr/zio-quill-vertx`.
 
 Completed locally:
 
@@ -28,6 +37,7 @@ Workspace evidence under `/workspace/.setup/quill/`:
 `fork-release-local-stage.log`, `fork-release-consumer.log`,
 `fork-release-ci-entrypoint.log`, `fork-release-guard-negative.log`.
 
-The environment's GitHub API access currently returns Forbidden. Git transport
-reads and a dry-run push to the user's fork succeed. The real push, tag and
-GitHub workflow/package results must be checked separately.
+The source and tag were pushed only to the user's fork. GitHub API access from
+the local environment was unavailable; the workflow's success, publication
+steps, prerelease and package versions were confirmed through public GitHub
+pages. No environment network configuration was changed.

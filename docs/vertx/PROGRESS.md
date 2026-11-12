@@ -1,5 +1,10 @@
 # Development checkpoint: native PostgreSQL backend
 
+Published fork release: [0.1.0-alpha.1](https://github.com/ffebr/zio-quill-vertx/releases/tag/vertx-v0.1.0-alpha.1).
+The eight CI matrix jobs and GitHub Packages publication passed. See
+[RELEASING.md](RELEASING.md) for dependency coordinates and authentication.
+Earlier checkpoints below retain their historical scope.
+
 The later multi-SQL checkpoint is in
 [MULTI-SQL-VALIDATION.md](MULTI-SQL-VALIDATION.md): 239 tests pass on each Scala
 version across PostgreSQL, MySQL, MariaDB, DB2 and portable dialect checks.

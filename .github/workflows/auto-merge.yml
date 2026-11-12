@@ -2,7 +2,6 @@
 # task and should be included in the git repository. Please do not edit it manually.
 
 name: Auto-merge bot dependency PRs
-env: {}
 'on':
   pull_request_target:
     types:
@@ -24,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     continue-on-error: false
-    if: ${{ (((github.event_name == 'workflow_dispatch') || (github.event.pull_request.user.login == 'dependabot[bot]')) || (github.event.pull_request.user.login == 'renovate[bot]')) || (github.event.pull_request.user.login == 'zio-scala-steward[bot]') }}
+    if: ${{ github.repository == 'zio/zio-quill' && ((((github.event_name == 'workflow_dispatch') || (github.event.pull_request.user.login == 'dependabot[bot]')) || (github.event.pull_request.user.login == 'renovate[bot]')) || (github.event.pull_request.user.login == 'zio-scala-steward[bot]')) }}
     steps:
     - name: Check App Token
       id: check-app-token

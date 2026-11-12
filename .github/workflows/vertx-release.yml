@@ -1,0 +1,94 @@
+name: Native Vert.x
+
+on:
+  push:
+    tags: ['vertx-v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable release tag to test and publish
+        required: true
+        default: vertx-v0.1.0-alpha.1
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vertx-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    if: github.repository == 'ffebr/zio-quill-vertx'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scala: ['2.12.20', '2.13.16']
+        database: [postgres, mysql, mariadb, db2]
+    env:
+      CI: 'true'
+      QUILL_VERTX_DB2_READY_ATTEMPTS: '600'
+      JDK_JAVA_OPTIONS: -Xmx2G -Xss5M -XX:ActiveProcessorCount=2 -Dmodules=base -Dquill.macro.log=false -Dsbt.supershell=false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - name: Local database storage
+        run: echo "QUILL_VERTX_SETUP_DIR=$RUNNER_TEMP/quill-vertx" >> "$GITHUB_ENV"
+      - name: Native integration tests
+        run: ./tools/vertx/ci-test.sh '${{ matrix.database }}' '${{ matrix.scala }}'
+      - name: Database diagnostics
+        if: failure()
+        run: ./tools/vertx/${{ matrix.database }}.sh logs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tests-${{ matrix.database }}-${{ matrix.scala }}
+          path: quill-vertx-zio/target/test-reports/*.xml
+          if-no-files-found: warn
+
+  publish:
+    if: github.repository == 'ffebr/zio-quill-vertx' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/vertx-v')) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag, 'vertx-v')))
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
+    env:
+      CI: 'true'
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERTX_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      JDK_JAVA_OPTIONS: -Xmx3G -Xss5M -XX:ActiveProcessorCount=2 -Dmodules=base -Dquill.macro.log=false -Dsbt.supershell=false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - name: Publish the fork's runtime artifacts
+        run: ./tools/vertx/publish.sh "$VERTX_RELEASE_TAG"
+      - name: Create the fork's release
+        shell: bash
+        run: |
+          version="${VERTX_RELEASE_TAG#vertx-v}"
+          flags=()
+          if [[ "$version" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$VERTX_RELEASE_TAG" --repo ffebr/zio-quill-vertx \
+            --verify-tag --title "Native Vert.x $version" \
+            --notes-file docs/vertx/RELEASE-NOTES.md "${flags[@]}"

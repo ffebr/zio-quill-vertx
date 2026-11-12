@@ -10,25 +10,25 @@ Global / onChangedBuildSource := ReloadOnSourceChanges
 
 inThisBuild(
   List(
-    organization := "dev.zio",
-    homepage     := Some(url("https://zio.dev/zio-quill")),
+    organization := ForkRelease.groupId,
+    homepage     := Some(url("https://github.com/ffebr/zio-quill-vertx")),
     licenses     := List(("Apache License 2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
     developers   := List(
       Developer("fwbrasil", "Flavio W. Brasil", "", url("https://github.com/fwbrasil")),
       Developer("deusaquilus", "Alexander Ioffe", "", url("https://github.com/deusaquilus"))
     ),
     scmInfo := Some(
-      ScmInfo(url("https://github.com/zio/zio-quill"), "git:git@github.com:zio/zio-quill.git")
+      ScmInfo(url("https://github.com/ffebr/zio-quill-vertx"), "git:git@github.com:ffebr/zio-quill-vertx.git")
     ),
-    publishTo := {
-      val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
-      if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
-      else localStaging.value
-    },
+    publishTo := Some("GitHub Packages" at ForkRelease.registry),
+    credentials ++= (for {
+      actor <- sys.env.get("GITHUB_ACTOR").toSeq
+      token <- sys.env.get("GITHUB_TOKEN").toSeq
+    } yield Credentials("GitHub Package Registry", "maven.pkg.github.com", actor, token)),
     scalafmtCheck     := true,
     scalafmtSbtCheck  := true,
     scalafmtOnCompile := !insideCI.value
-  ) ++ ciSettings
+  ) ++ ciSettings ++ ForkRelease.versionSettings
 )
 
 lazy val ciSettings: Seq[Setting[_]] = Seq(
@@ -164,6 +164,8 @@ lazy val dbModules = Seq[sbt.ClasspathDep[sbt.ProjectReference]](
   `quill-jdbc-test-postgres`,
   `quill-jdbc-test-sqlite`,
   `quill-jdbc-test-sqlserver`,
+  `quill-vertx-db2-client`,
+  `quill-vertx-zio`,
   `quill-doobie`,
   `quill-jdbc-zio`
 )
@@ -532,6 +534,32 @@ lazy val `quill-zio` =
     )
     .dependsOn(`quill-core` % "compile->compile;test->test")
     .enablePlugins(MimaPlugin)
+
+lazy val `quill-vertx-db2-client` =
+  (project in file("quill-vertx-db2-client"))
+    .settings(commonSettings: _*)
+    .settings(VertxDB2Patch.settings(Version.vertx): _*)
+
+lazy val `quill-vertx-zio` =
+  (project in file("quill-vertx-zio"))
+    .settings(commonSettings: _*)
+    .settings(
+      crossScalaVersions := Seq(scala_v_12, scala_v_13),
+      Test / fork        := true,
+      libraryDependencies ++= Seq(
+        "io.vertx" % "vertx-pg-client"    % Version.vertx,
+        "io.vertx" % "vertx-mysql-client" % Version.vertx,
+        // Optional in vertx-pg-client, required by PostgreSQL's default SCRAM auth.
+        "com.ongres.scram" % "scram-client" % "3.2",
+        "dev.zio"         %% "zio-json"     % "0.7.44"
+      )
+    )
+    .dependsOn(
+      `quill-sql`              % "compile->compile",
+      `quill-zio`              % "compile->compile",
+      `quill-vertx-db2-client` % "compile->compile",
+      `quill-test-kit`         % "test->test"
+    )
 
 lazy val `quill-jdbc-zio` =
   (project in file("quill-jdbc-zio"))

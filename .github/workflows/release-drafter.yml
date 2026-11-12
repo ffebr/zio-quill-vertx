@@ -2,7 +2,6 @@
 # task and should be included in the git repository. Please do not edit it manually.
 
 name: Release Drafter
-env: {}
 'on':
   push:
     branches:
@@ -15,6 +14,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   update_release_draft:
+    if: ${{ github.repository == 'zio/zio-quill' }}
     name: update_release_draft
     runs-on: ubuntu-latest
     continue-on-error: false

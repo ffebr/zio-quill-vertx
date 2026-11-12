@@ -1,0 +1,17 @@
+Native Vert.x DB2 client CCSID correction
+
+This artifact incorporates Vert.x DB2 Client 4.5.36 from:
+https://github.com/eclipse-vertx/vertx-sql-client
+
+Upstream source notices include:
+Copyright (c) 2011-2026 Contributors to the Eclipse Foundation
+Copyright (C) 2019,2020 IBM Corporation
+
+The incorporated code is distributed under the Apache License, Version 2.0
+(the Apache-2.0 option for files offered under EPL-2.0 OR Apache-2.0).
+The accompanying LICENSE-QUILL-VERTX-DB2.txt contains that license.
+Upstream class and service resources are retained in the artifact.
+
+Modification: CCSIDConstants.EBCDIC uses CP500 instead of CP1047 to match
+its declared CCSID 500. See the module README and project/VertxDB2Patch.scala
+for the pinned upstream artifact and build procedure.

@@ -23,6 +23,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
+    if: ${{ github.repository == 'zio/zio-quill' }}
     name: Build ${{ matrix.build }}
     runs-on: ubuntu-latest
     continue-on-error: false
@@ -65,7 +66,7 @@ jobs:
     name: Docs
     runs-on: ubuntu-latest
     continue-on-error: false
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.repository == 'zio/zio-quill' && (github.event_name == 'pull_request') }}
     steps:
     - name: Git Checkout
       uses: actions/checkout@v7.0.1
@@ -86,6 +87,7 @@ jobs:
     - name: Check website build process
       run: rm -rf website; sbt --no-colors docs/clean; sbt --no-colors docs/buildWebsite
   lint:
+    if: ${{ github.repository == 'zio/zio-quill' }}
     name: Lint
     runs-on: ubuntu-latest
     continue-on-error: false
@@ -115,7 +117,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    if: ${{ (github.event_name == 'release') && (github.event.action == 'published') }}
+    if: ${{ github.repository == 'zio/zio-quill' && ((github.event_name == 'release') && (github.event.action == 'published')) }}
     steps:
     - name: Git Checkout
       uses: actions/checkout@v7.0.1
@@ -177,7 +179,7 @@ jobs:
     needs:
     - lint
     - build
-    if: always()
+    if: ${{ github.repository == 'zio/zio-quill' && (always()) }}
     steps:
     - name: Report Failed CI
       if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
@@ -190,7 +192,7 @@ jobs:
     continue-on-error: false
     needs:
     - ci
-    if: ${{ (((github.event_name == 'release') && (github.event.action == 'published')) || (github.event_name == 'workflow_dispatch')) || ((github.event_name == 'push') && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) }}
+    if: ${{ github.repository == 'zio/zio-quill' && ((((github.event_name == 'release') && (github.event.action == 'published')) || (github.event_name == 'workflow_dispatch')) || ((github.event_name == 'push') && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))) }}
     steps:
     - name: Git Checkout
       uses: actions/checkout@v7.0.1
@@ -226,7 +228,7 @@ jobs:
     continue-on-error: false
     needs:
     - release
-    if: ${{ ((github.event_name == 'release') && (github.event.action == 'published')) || (github.event_name == 'workflow_dispatch') }}
+    if: ${{ github.repository == 'zio/zio-quill' && (((github.event_name == 'release') && (github.event.action == 'published')) || (github.event_name == 'workflow_dispatch')) }}
     steps:
     - name: Git Checkout
       uses: actions/checkout@v7.0.1
@@ -257,7 +259,7 @@ jobs:
     continue-on-error: false
     needs:
     - release-docs
-    if: ${{ ((github.event_name == 'release') && (github.event.action == 'published')) || (github.event_name == 'workflow_dispatch') }}
+    if: ${{ github.repository == 'zio/zio-quill' && (((github.event_name == 'release') && (github.event.action == 'published')) || (github.event_name == 'workflow_dispatch')) }}
     steps:
     - name: Git Checkout
       uses: actions/checkout@v7.0.1

@@ -2,7 +2,6 @@
 # task and should be included in the git repository. Please do not edit it manually.
 
 name: Scala Steward
-env: {}
 'on':
   schedule:
   - cron: 0 0 * * *
@@ -14,6 +13,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   scala-steward:
+    if: ${{ github.repository == 'zio/zio-quill' }}
     name: Scala Steward
     runs-on: ubuntu-latest
     timeout-minutes: 45

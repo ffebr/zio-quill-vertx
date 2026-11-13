@@ -22,16 +22,28 @@ class VertxDialectSpec extends AnyWordSpec with Matchers {
       intSql must include("::text::integer")
       longSql must include("::text::bigint")
     }
+
+    "keep CASE evaluation for nullable volatile infix values" in {
+      val sql = mirror.run {
+        query[Product].map(_ => infix"""random()::text""".as[Option[String]].getOrElse("fallback"))
+      }.string
+
+      sql must include("CASE WHEN")
+      sql must include("random()::text IS NOT NULL")
+    }
   }
 }
 
 class VertxNativeDialectSpec extends VertxPostgresSpecSupport with BeforeAndAfterEach with Matchers {
   case class Product(id: Long, description: String, sku: Int)
   case class CastRow(id: Long, i: Int, l: Long)
+  case class PatchRow(id: Long, email: String, bio: Option[String], active: Boolean)
   import context._
 
-  implicit val castRowSchema: context.SchemaMeta[CastRow] = schemaMeta[CastRow]("quill_vertx_cast_rows")
-  val castRows                                            = quote(query[CastRow])
+  implicit val castRowSchema: context.SchemaMeta[CastRow]   = schemaMeta[CastRow]("quill_vertx_cast_rows")
+  val castRows                                              = quote(query[CastRow])
+  implicit val patchRowSchema: context.SchemaMeta[PatchRow] = schemaMeta[PatchRow]("quill_vertx_patch_rows")
+  val patchRows                                             = quote(query[PatchRow])
 
   private def executeSql(statement: String): Unit =
     unsafeRun(VertxRuntime.fromFuture(pool.query(statement).execute()).unit)
@@ -39,16 +51,24 @@ class VertxNativeDialectSpec extends VertxPostgresSpecSupport with BeforeAndAfte
   override def beforeAll(): Unit = {
     super.beforeAll()
     executeSql("DROP TABLE IF EXISTS quill_vertx_cast_rows")
+    executeSql("DROP TABLE IF EXISTS quill_vertx_patch_rows")
     executeSql("CREATE TABLE quill_vertx_cast_rows (id BIGINT PRIMARY KEY, i INTEGER NOT NULL, l BIGINT NOT NULL)")
+    executeSql(
+      "CREATE TABLE quill_vertx_patch_rows (id BIGINT PRIMARY KEY, email TEXT NOT NULL, bio TEXT NULL, active BOOLEAN NOT NULL)"
+    )
   }
 
   override def beforeEach(): Unit = {
     super.beforeEach()
     executeSql("TRUNCATE TABLE quill_vertx_cast_rows")
+    executeSql("TRUNCATE TABLE quill_vertx_patch_rows")
   }
 
   override def afterAll(): Unit =
-    try if (poolIsReady) executeSql("DROP TABLE IF EXISTS quill_vertx_cast_rows")
+    try if (poolIsReady) {
+        executeSql("DROP TABLE IF EXISTS quill_vertx_cast_rows")
+        executeSql("DROP TABLE IF EXISTS quill_vertx_patch_rows")
+      }
     finally super.afterAll()
 
   "PostgresZioVertxContext" - {
@@ -176,6 +196,53 @@ class VertxNativeDialectSpec extends VertxPostgresSpecSupport with BeforeAndAfte
       val returned = unsafeRun(context.run(operation))
 
       returned mustBe 1004
+    }
+
+    "use type-inferred COALESCE for optional values in queries and updates" in {
+      unsafeRun(context.run(patchRows.insertValue(lift(PatchRow(1L, "old@example.test", Some("old bio"), false)))))
+
+      val querySome = quote {
+        patchRows
+          .filter(_.id == lift(1L))
+          .map(row => lift(Some("query@example.test"): Option[String]).getOrElse(row.email))
+      }
+      val queryNone = quote {
+        patchRows.filter(_.id == lift(1L)).map(row => lift(None: Option[String]).getOrElse(row.email))
+      }
+      val querySomeSql = context.translate(querySome)
+      val queryNoneSql = context.translate(queryNone)
+
+      querySomeSql must include("COALESCE(")
+      queryNoneSql must include("COALESCE(")
+      unsafeRun(context.run(querySome)) mustBe List("query@example.test")
+      unsafeRun(context.run(queryNone)) mustBe List("old@example.test")
+
+      val updateSome = quote {
+        patchRows.filter(_.id == lift(1L)).update(
+          row => row.email -> lift(Some("some@example.test"): Option[String]).getOrElse(row.email),
+          row => row.bio   -> lift(Some("some bio"): Option[String]).orElse(row.bio)
+        )
+      }
+      val updateNone = quote {
+        patchRows.filter(_.id == lift(1L)).update(
+          row => row.email -> lift(None: Option[String]).getOrElse(row.email),
+          row => row.bio   -> lift(None: Option[String]).orElse(row.bio)
+        )
+      }
+      val updateSql = context.translate(updateSome)
+      updateSql must include("COALESCE(")
+      unsafeRun(context.run(updateSome))
+      unsafeRun(context.run(updateNone))
+
+      val updated = unsafeRun(context.run(patchRows.filter(_.id == lift(1L)))).head
+      updated.email mustBe "some@example.test"
+      updated.bio mustBe Some("some bio")
+
+      val unrelatedIf = quote {
+        patchRows.filter(_.id == lift(1L)).map(row => if (row.active) "active" else "inactive")
+      }
+      context.translate(unrelatedIf) must include("CASE WHEN")
+      unsafeRun(context.run(unrelatedIf)) mustBe List("inactive")
     }
   }
 }

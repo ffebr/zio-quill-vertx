@@ -66,23 +66,26 @@ trait VertxTranslateContext {
     if (lifts.isEmpty) return sql
     if (!options.plugLifts) return sql + "\n" + placeholderMappings(lifts)
 
+    val values = lifts.toVector
+    rewriteBindMarkers(sql) { (number, marker, _) =>
+      if (number > 0 && number <= values.length) {
+        val rendered = diagnosticValue(values(number - 1).value)
+        if (options.demarcatePluggedLifts) s"lift($rendered)" else rendered
+      } else marker
+    }
+  }
+
+  /**
+   * Rewrite SQL bind markers without interpreting markers inside SQL lexical
+   * regions.
+   */
+  protected final def rewriteBindMarkers(sql: String)(replace: (Int, String, Int) => String): String = {
     val out     = new StringBuilder(sql.length + 32)
-    val values  = lifts.toVector
     val marker  = idiom.liftingPlaceholder(0)
     val mysql   = idiom.isInstanceOf[VertxMysqlDialect]
     val prefix  = if (marker == "?") "" else marker.dropRight(1)
     var ordinal = 0
     var i       = 0
-
-    def appendLift(number: Int, start: Int, end: Int): Unit =
-      if (number > 0 && number <= values.length) {
-        val rendered = diagnosticValue(values(number - 1).value)
-        out.append(if (options.demarcatePluggedLifts) s"lift($rendered)" else rendered)
-        ()
-      } else {
-        out.append(sql.substring(start, end))
-        ()
-      }
 
     while (i < sql.length) {
       if (sql.charAt(i) == '\'') {
@@ -107,8 +110,7 @@ trait VertxTranslateContext {
         out.append(sql.substring(i, end)); i = end
       } else if (marker == "?" && sql.charAt(i) == '?') {
         ordinal += 1
-        appendLift(ordinal, i, i + 1)
-        i += 1
+        out.append(replace(ordinal, "?", i)); i += 1
       } else if (
         prefix.nonEmpty && sql.startsWith(prefix, i) && isTokenBoundary(sql, i) &&
         i + prefix.length < sql.length && sql.charAt(i + prefix.length).isDigit
@@ -119,8 +121,7 @@ trait VertxTranslateContext {
         val number =
           try sql.substring(start, end).toInt
           catch { case _: NumberFormatException => 0 }
-        appendLift(number, i, end)
-        i = end
+        out.append(replace(number, sql.substring(i, end), i)); i = end
       } else if (marker == "$1" && sql.charAt(i) == '$' && isTokenBoundary(sql, i)) {
         dollarQuoteEnd(sql, i) match {
           case Some((tag, bodyStart)) =>

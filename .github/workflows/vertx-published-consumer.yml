@@ -1,0 +1,122 @@
+name: Published Vert.x artifact consumer
+
+on:
+  workflow_run:
+    workflows: ['Native Vert.x']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Immutable Vert.x release version already published to GitHub Packages
+        required: true
+        type: string
+      app_commit:
+        description: Immutable 40-character commit of ffebr/vertx-jdbc-challenge
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: vertx-published-consumer-${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_version }}
+  cancel-in-progress: false
+
+jobs:
+  published-consumer:
+    if: >-
+      github.repository == 'ffebr/zio-quill-vertx' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == 'ffebr/zio-quill-vertx'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:18-bookworm@sha256:ece55f7868da684e400f82f1030a050718adbdd65c23aa500c486f6e2950dc0f
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      APP_DIR: ${{ github.workspace }}/app
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: Validate requested immutable inputs
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          APP_COMMIT: ${{ inputs.app_commit }}
+          PRODUCER_SHA: ${{ github.event.workflow_run.head_sha }}
+          PRODUCER_EVENT: ${{ github.event.workflow_run.event }}
+          PRODUCER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          PRODUCER_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == ffebr/zio-quill-vertx ]]
+          if [[ "$EVENT_NAME" == workflow_run ]]; then
+            [[ "$PRODUCER_CONCLUSION" == success ]]
+            [[ "$PRODUCER_EVENT" == push ]]
+            [[ "$PRODUCER_REPOSITORY" == ffebr/zio-quill-vertx ]]
+            [[ "$PRODUCER_SHA" =~ ^[0-9a-f]{40}$ ]]
+            mapfile -t release_tags < <(git tag --points-at "$PRODUCER_SHA" | grep -E '^vertx-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$' || true)
+            [[ "${#release_tags[@]}" == 1 ]]
+            release_version="${release_tags[0]#vertx-v}"
+            app_commit="$(git ls-remote --exit-code https://github.com/ffebr/vertx-jdbc-challenge.git refs/heads/main | awk '$2 == "refs/heads/main" { print $1 }')"
+            [[ "$app_commit" =~ ^[0-9a-f]{40}$ ]]
+          else
+            release_version="$RELEASE_VERSION"
+            app_commit="$APP_COMMIT"
+            [[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]
+            [[ "$app_commit" =~ ^[0-9a-f]{40}$ ]]
+            git rev-parse --verify "refs/tags/vertx-v$release_version^{commit}" >/dev/null
+          fi
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "app_commit=$app_commit" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ffebr/vertx-jdbc-challenge
+          ref: ${{ steps.resolve.outputs.app_commit }}
+          path: app
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+          cache-dependency-path: app/submissions/scala-zio-vertx-quill-ffebr/build.sbt
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: app/bench/go.mod
+          cache-dependency-path: app/bench/go.sum
+      - name: Install PostgreSQL client and HTTP tools
+        run: sudo apt-get update -qq && sudo apt-get install --yes --no-install-recommends postgresql-client curl python3
+      - name: Prepare the original deterministic PostgreSQL 18 seed
+        run: bash "$APP_DIR/seed/make-seed.sh" --dev
+      - name: Consume the published package in the pinned application commit
+        env:
+          RELEASE_VERSION: ${{ steps.resolve.outputs.release_version }}
+          APP_COMMIT: ${{ steps.resolve.outputs.app_commit }}
+          GITHUB_PACKAGES_USER: ${{ github.actor }}
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/vertx/verify-published-consumer.sh "$RELEASE_VERSION" "$APP_COMMIT" "$APP_DIR"
+      - name: Preserve consumer verification reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vertx-published-consumer-${{ steps.resolve.outputs.release_version || inputs.release_version || 'automatic' }}
+          path: ${{ runner.temp }}/vertx-published-consumer*/
+          if-no-files-found: warn
+          retention-days: 14

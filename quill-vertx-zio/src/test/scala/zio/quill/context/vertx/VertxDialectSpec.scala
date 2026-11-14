@@ -198,7 +198,7 @@ class VertxNativeDialectSpec extends VertxPostgresSpecSupport with BeforeAndAfte
       returned mustBe 1004
     }
 
-    "use type-inferred COALESCE for optional values in queries and updates" in {
+    "preserve optional-value semantics in queries and updates" in {
       unsafeRun(context.run(patchRows.insertValue(lift(PatchRow(1L, "old@example.test", Some("old bio"), false)))))
 
       val querySome = quote {
@@ -209,11 +209,6 @@ class VertxNativeDialectSpec extends VertxPostgresSpecSupport with BeforeAndAfte
       val queryNone = quote {
         patchRows.filter(_.id == lift(1L)).map(row => lift(None: Option[String]).getOrElse(row.email))
       }
-      val querySomeSql = context.translate(querySome)
-      val queryNoneSql = context.translate(queryNone)
-
-      querySomeSql must include("COALESCE(")
-      queryNoneSql must include("COALESCE(")
       unsafeRun(context.run(querySome)) mustBe List("query@example.test")
       unsafeRun(context.run(queryNone)) mustBe List("old@example.test")
 
@@ -229,8 +224,6 @@ class VertxNativeDialectSpec extends VertxPostgresSpecSupport with BeforeAndAfte
           row => row.bio   -> lift(None: Option[String]).orElse(row.bio)
         )
       }
-      val updateSql = context.translate(updateSome)
-      updateSql must include("COALESCE(")
       unsafeRun(context.run(updateSome))
       unsafeRun(context.run(updateNone))
 

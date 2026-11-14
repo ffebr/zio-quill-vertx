@@ -1,28 +1,52 @@
-# PostgreSQL optional updates discovered by the Conduit application
+# PostgreSQL lifted parameters
 
-The Conduit dual-backend application exposed an incompatibility in
-`0.1.0-alpha.1`: a lifted `None` in an ordinary Quill `getOrElse` update can
-produce `CASE WHEN $1 IS NOT NULL THEN $2 ELSE column END`. PostgreSQL cannot
-infer the first parameter's type through the native prepare protocol and
-returns SQLSTATE `42P18`. The JDBC executor supplies parameter types and accepts
-the same QDSL.
+The Conduit application exposed a bug in `0.1.0-alpha.1`: a lifted `None`
+can produce `CASE WHEN $1 IS NOT NULL THEN $2 ELSE column END`. PostgreSQL
+cannot infer the first parameter's type during native preparation and returns
+SQLSTATE `42P18`. The same problem affects ordinary `isEmpty` and `forall`
+queries. Rewriting a particular update to `COALESCE` does not solve it.
 
-The native PostgreSQL dialect now lowers the normalized null-fallback expression
-to `COALESCE($1, column)`. PostgreSQL infers the parameter type from the column.
-Application QDSL and the original API assertions stay unchanged. The rewrite
-only accepts stable operands (lifts, identifiers, constants and their properties)
-and preserves ordinary CASE expressions and potentially volatile SQL expressions.
+The native encoders now preserve Vert.x typed-null metadata, including through
+optional and mapped encoders. The binding layer uses it to annotate parameters
+used in null predicates before preparing the statement. Other scalar uses keep
+target-column inference, including PostgreSQL enum comparisons. The ordinary
+Quill CASE expressions and their evaluation semantics remain unchanged.
 
-Regression coverage lives in `VertxDialectSpec`: real PostgreSQL projections and
-updates with `Some`/`None`, nullable `orElse`, an ordinary conditional, and a
-mirror-only check that volatile expressions retain CASE evaluation. This change
-does not add a blocking operation or a JDBC fallback.
+PostgreSQL has two additional preparation constraints:
 
-The existing published alpha remains immutable. Consumers needing this fix must
-use the corrected source revision until another version is released. The
-Conduit application pins both executors to that same source revision.
+- Vert.x 4.5.36's fallback class lookup omits decimal types. The binding layer
+  annotates decimal parameters as `numeric`.
+- A projected array parameter can otherwise become `text` before values are
+  bound. Supported arrays receive their PostgreSQL array type.
 
-The PostgreSQL-focused native suite passed on Scala 2.13.16: 178 tests in 30
-suites, with no failed, canceled, ignored or pending tests. This includes both
-new regressions. Other database/Scala matrix entries were not rerun for this
-PostgreSQL-only change; no new package release is implied by these results.
+Streaming prepares a cursor before passing its tuple and uses the same binding
+layer, so NULL predicates are typed during preparation as well. JSON and JSONB parameters carry
+separate descriptors and bind as JSON text cast to the correct database type.
+SQL NULL remains distinct from JSON's `null`, including for scalar JSON strings.
+The binding layer uses the same SQL marker scanner as diagnostics; markers
+inside quoted strings, comments and dollar-quoted bodies are preserved.
+
+The public one-argument `VertxEncoder` constructor remains available. A custom
+encoder used with optional values should describe the native representation it
+appends, for example:
+
+```scala
+VertxEncoder[CustomerCode] { (index, value, tuple, _) =>
+  tuple.addString(value.value)
+}.withNullValue(io.vertx.sqlclient.data.NullValue.String)
+```
+
+Use the descriptor of the encoded representation, rather than the domain class.
+Mapped encoders inherit the underlying descriptor. Custom encoders without a
+descriptor retain their previous untyped-null behavior.
+
+Live regression coverage includes Some/None queries and updates, mapped and
+custom encoders, decimal and array bindings, cursor streams, JSON/JSONB,
+batches, and reusable prepared queries. The unchanged shared Quill query
+corpus remains part of the native suite. No JDBC fallback or blocking database
+operation is introduced.
+
+The old alpha remains immutable. The release workflow gates publication on
+PostgreSQL, MySQL, MariaDB and DB2 tests with Scala 2.12 and 2.13. The separate
+published-consumer workflow then builds the Conduit application against the
+registry artifacts and runs its original conformance tests.

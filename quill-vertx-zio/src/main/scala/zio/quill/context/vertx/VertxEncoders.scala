@@ -5,6 +5,8 @@ import zio.quill.context.sql.encoding.ArrayEncoding
 
 import java.time.{LocalDate, LocalDateTime, ZoneId}
 import java.util.Date
+import io.vertx.sqlclient.data.NullValue
+import scala.reflect.{ClassTag, classTag}
 
 trait VertxEncoders extends VertxBaseEncoders with ArrayEncoding {
   this: SqlContext[_, _] =>
@@ -22,6 +24,7 @@ trait VertxEncoders extends VertxBaseEncoders with ArrayEncoding {
   implicit def arrayTimestampEncoder[Col <: Seq[java.sql.Timestamp]]: Encoder[Col] = arrayEncoder(_.map(_.toLocalDateTime).toArray)
   implicit def arrayLocalDateEncoder[Col <: Seq[LocalDate]]: Encoder[Col]          = arrayEncoder(_.toArray)
 
-  private def arrayEncoder[Col <: Seq[_], Elem <: AnyRef](f: Col => Array[Elem]): Encoder[Col] =
-    encoderOf((i, v, r) => append(i, f(v), r))
+  private def arrayEncoder[Col <: Seq[_], Elem <: AnyRef: ClassTag](f: Col => Array[Elem]): Encoder[Col] =
+    encoderOf[Col]((i, v, r) => append(i, f(v), r))
+      .withNullValue(NullValue.of(classTag[Elem].newArray(0).getClass))
 }

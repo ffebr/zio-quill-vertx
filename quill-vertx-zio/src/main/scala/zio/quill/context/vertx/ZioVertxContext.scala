@@ -59,6 +59,13 @@ abstract class ZioVertxContext[D <: SqlIdiom, +Naming <: NamingStrategy](val nam
     Failure(new UnsupportedOperationException("Synchronous SQL probing is unavailable for the native Vert.x context"))
 
   /**
+   * Allow a backend to adapt SQL and bind metadata before the driver prepares a
+   * statement.
+   */
+  protected def prepareBindings(sql: String, tuple: Tuple): (String, Tuple) =
+    (sql, tuple)
+
+  /**
    * Asynchronously validate a statement using the native SQL prepare protocol.
    */
   def probeAsync(statement: String): ZIO[Pool, Throwable, Unit] =
@@ -125,8 +132,9 @@ abstract class ZioVertxContext[D <: SqlIdiom, +Naming <: NamingStrategy](val nam
       ZIO.foreach(groups.flatMap { case BatchGroup(sql, prepares, _) => prepares.map(sql -> _) }) {
         case (sql, prepare) =>
           ZIO.attempt(prepare(Tuple.tuple(), connection)).map { case (params, tuple) =>
-            logger.logBatchItem(sql, params)
-            preparedQuery(sql, tuple)
+            val (boundSql, boundTuple) = prepareBindings(sql, tuple)
+            logger.logBatchItem(boundSql, params)
+            preparedQuery(boundSql, boundTuple)
           }
       }
     }
@@ -174,12 +182,13 @@ abstract class ZioVertxContext[D <: SqlIdiom, +Naming <: NamingStrategy](val nam
                    }
                  }.unit
              }
-        (params, tuple) <- ZIO.attempt(prepare(Tuple.tuple(), connection))
-        _               <- ZIO.succeed(logger.logQuery(sql, params))
-        statement       <- ZIO.acquireRelease(
-                       VertxRuntime.fromFutureScoped(connection.prepare(sql))(stmt => VertxRuntime.fromFuture(stmt.close()).ignore)
+        (params, tuple)       <- ZIO.attempt(prepare(Tuple.tuple(), connection))
+        (boundSql, boundTuple) = prepareBindings(sql, tuple)
+        _                     <- ZIO.succeed(logger.logQuery(boundSql, params))
+        statement             <- ZIO.acquireRelease(
+                       VertxRuntime.fromFutureScoped(connection.prepare(boundSql))(stmt => VertxRuntime.fromFuture(stmt.close()).ignore)
                      )(stmt => VertxRuntime.fromFuture(stmt.close()).ignore)
-        cursor <- ZIO.acquireRelease(ZIO.attempt(statement.cursor(tuple)))(current =>
+        cursor <- ZIO.acquireRelease(ZIO.attempt(statement.cursor(boundTuple)))(current =>
                     VertxRuntime.fromFuture(current.close()).ignore
                   )
       } yield {
@@ -234,8 +243,9 @@ abstract class ZioVertxContext[D <: SqlIdiom, +Naming <: NamingStrategy](val nam
   private def prepareSingle(sql: String, prepare: Prepare): PrepareQueryResult =
     onConnection { connection =>
       ZIO.attempt(prepare(Tuple.tuple(), connection)).map { case (params, tuple) =>
-        logger.logQuery(sql, params)
-        preparedQuery(sql, tuple)
+        val (boundSql, boundTuple) = prepareBindings(sql, tuple)
+        logger.logQuery(boundSql, params)
+        preparedQuery(boundSql, boundTuple)
       }
     }
 
@@ -245,9 +255,10 @@ abstract class ZioVertxContext[D <: SqlIdiom, +Naming <: NamingStrategy](val nam
     connection: SqlConnection
   ): ZIO[Any, Throwable, RowSet[Row]] =
     for {
-      (params, tuple) <- ZIO.attempt(prepare(Tuple.tuple(), connection))
-      _               <- ZIO.succeed(logger.logQuery(sql, params))
-      rows            <- cancelOnInterrupt(connection)(connection.preparedQuery(sql).execute(tuple))
+      (params, tuple)       <- ZIO.attempt(prepare(Tuple.tuple(), connection))
+      (boundSql, boundTuple) = prepareBindings(sql, tuple)
+      _                     <- ZIO.succeed(logger.logQuery(boundSql, params))
+      rows                  <- cancelOnInterrupt(connection)(connection.preparedQuery(boundSql).execute(boundTuple))
     } yield rows
 
   protected final def extractFirstRowSet[T](
@@ -264,10 +275,15 @@ abstract class ZioVertxContext[D <: SqlIdiom, +Naming <: NamingStrategy](val nam
   ): ZIO[Any, Throwable, RowSet[Row]] =
     for {
       prepared <- ZIO.foreach(prepares)(prepare => ZIO.attempt(prepare(Tuple.tuple(), connection)))
-      tuples    = prepared.map(_._2)
-      _        <- ZIO.succeed(logger.underlying.debug("Batch: {}", sql))
-      _        <- ZIO.foreachDiscard(prepared)(p => ZIO.succeed(logger.logBatchItem(sql, p._1)))
-      result   <- cancelOnInterrupt(connection)(connection.preparedQuery(sql).executeBatch(tuples.asJava))
+      bound     = prepared.map { case (params, tuple) => (params, prepareBindings(sql, tuple)) }
+      boundSql  = bound.headOption.map(_._2._1).getOrElse(sql)
+      _        <- ZIO.foreachDiscard(bound) { case (_, (statement, _)) =>
+             ZIO.attempt(require(statement == boundSql, "Batch parameter encoding produced inconsistent SQL"))
+           }
+      tuples  = bound.map(_._2._2)
+      _      <- ZIO.succeed(logger.underlying.debug("Batch: {}", boundSql))
+      _      <- ZIO.foreachDiscard(bound)(p => ZIO.succeed(logger.logBatchItem(boundSql, p._1)))
+      result <- cancelOnInterrupt(connection)(connection.preparedQuery(boundSql).executeBatch(tuples.asJava))
     } yield result
 
   private def preparedQuery(sql: String, tuple: Tuple): VertxPreparedQuery =

@@ -17,7 +17,7 @@ sql_assert_managed() {
   image="$(sql_docker inspect --format '{{.Config.Image}}' "$CONTAINER")"
   label="$(sql_docker inspect --format "{{index .Config.Labels \"${LABEL}\"}}" "$CONTAINER")"
   mount_source="$(sql_docker inspect --format "{{range .Mounts}}{{if eq .Destination \"${DATA_PATH}\"}}{{.Source}}{{end}}{{end}}" "$CONTAINER")"
-  published_port="$(sql_docker inspect --format "{{range (index .NetworkSettings.Ports \"${CONTAINER_PORT}/tcp\")}}{{.HostIp}}:{{.HostPort}}{{end}}" "$CONTAINER")"
+  published_port="$(sql_docker inspect --format "{{range (index .HostConfig.PortBindings \"${CONTAINER_PORT}/tcp\")}}{{.HostIp}}:{{.HostPort}}{{end}}" "$CONTAINER")"
   if [[ "$image" != "$IMAGE" || "$label" != true || "$mount_source" != "$DATA_DIR" || "$published_port" != "127.0.0.1:${PORT}" ]]; then
     echo "Refusing to use existing container '$CONTAINER': image, ownership label, data mount, or localhost port does not match this harness" >&2
     return 1

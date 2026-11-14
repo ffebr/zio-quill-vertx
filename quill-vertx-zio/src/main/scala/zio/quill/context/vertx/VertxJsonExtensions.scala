@@ -31,7 +31,7 @@ trait VertxJsonExtensions extends VertxEncoders with VertxDecoders {
 
   def astEncoder[Wrapper](valueToString: Wrapper => String, jsonType: String): Encoder[Wrapper] = {
     require(jsonType == "json" || jsonType == "jsonb", s"Unsupported PostgreSQL JSON type: $jsonType")
-    encodeJsonValue(valueToString)
+    encodeJsonValue(valueToString, jsonType)
   }
 
   def astDecoder[Wrapper](valueFromJson: Json => Wrapper): Decoder[Wrapper] =
@@ -48,7 +48,7 @@ trait VertxJsonExtensions extends VertxEncoders with VertxDecoders {
     jsonEncoder: JsonEncoder[JsValue]
   ): Encoder[Wrapper] = {
     require(jsonType == "json" || jsonType == "jsonb", s"Unsupported PostgreSQL JSON type: $jsonType")
-    encodeJsonValue(value => jsonEncoder.encodeJson(unwrap(value), None).toString)
+    encodeJsonValue(value => jsonEncoder.encodeJson(unwrap(value), None).toString, jsonType)
   }
 
   def entityDecoder[JsValue: ClassTag, Wrapper](wrap: JsValue => Wrapper)(
@@ -67,32 +67,19 @@ trait VertxJsonExtensions extends VertxEncoders with VertxDecoders {
     }
   }
 
-  private def encodeJsonValue[Wrapper](toJson: Wrapper => String): Encoder[Wrapper] =
-    VertxEncoder((index, value, tuple, _) => append(index, fromJsonText(toJson(value)), tuple))
+  private def encodeJsonValue[Wrapper](toJson: Wrapper => String, jsonType: String): Encoder[Wrapper] =
+    VertxEncoder[Wrapper]((index, value, tuple, _) =>
+      append(index, VertxPostgresBindings.JsonParameter(validJsonText(toJson(value)), jsonType), tuple)
+    ).withNullParameter(VertxPostgresBindings.JsonParameter(null, jsonType))
 
   private def decodeJsonValue[Wrapper](fromJson: String => Wrapper): Decoder[Wrapper] =
     VertxDecoder((index, row, _) => fromJson(toJsonText(row.getValue(index))))
 
-  private def fromJsonText(value: String): AnyRef =
+  private def validJsonText(value: String): String =
     Json.decoder.decodeJson(value) match {
-      case Right(json) => toVertxJson(json)
+      case Right(_)    => value
       case Left(error) => throw new IllegalArgumentException(s"Invalid JSON emitted by zio-json: $error")
     }
-
-  private def toVertxJson(value: Json): AnyRef = value match {
-    case Json.Obj(fields) =>
-      val result = new io.vertx.core.json.JsonObject()
-      fields.foreach { case (key, fieldValue) => result.put(key, toVertxJson(fieldValue)) }
-      result
-    case Json.Arr(values) =>
-      val result = new io.vertx.core.json.JsonArray()
-      values.foreach(fieldValue => result.add(toVertxJson(fieldValue)))
-      result
-    case Json.Str(string)   => string
-    case Json.Num(number)   => number
-    case Json.Bool(boolean) => Boolean.box(boolean)
-    case Json.Null          => Tuple.JSON_NULL
-  }
 
   private def toJsonText(value: Any): String =
     if (value == null)

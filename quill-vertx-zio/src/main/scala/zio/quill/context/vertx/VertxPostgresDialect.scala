@@ -1,27 +1,14 @@
 package zio.quill.context.vertx
 
-import zio.quill.{IdiomContext, NamingStrategy, PostgresDialect}
+import zio.quill.{NamingStrategy, PostgresDialect}
 import zio.quill.ast._
 import zio.quill.context.sql.idiom._
 import zio.quill.idiom.StatementInterpolator._
 import zio.quill.norm.BetaReduction
-import zio.quill.norm.{ConcatBehavior, EqualityBehavior}
 import zio.quill.quat.Quat
 
 /** PostgreSQL SQL generation for Vert.x prepared queries (`$1`, `$2`, ...). */
 trait VertxPostgresDialect extends PostgresDialect with PositionalBindVariables {
-
-  override def normalizeAst(
-    ast: Ast,
-    concatBehavior: ConcatBehavior,
-    equalityBehavior: EqualityBehavior,
-    idiomContext: IdiomContext
-  ): Ast =
-    // PostgreSQL cannot infer a bind's type when it appears only in `$n IS NOT NULL` (42P18).
-    // COALESCE gives the bind a type from the fallback column while preserving getOrElse semantics.
-    VertxPostgresDialect.LowerNullGetOrElse(
-      super.normalizeAst(ast, concatBehavior, equalityBehavior, idiomContext)
-    )
 
   /**
    * Lower String numeric conversions before SqlIdiom's action alias helpers
@@ -77,32 +64,6 @@ trait VertxPostgresDialect extends PostgresDialect with PositionalBindVariables 
 }
 
 object VertxPostgresDialect extends VertxPostgresDialect {
-  private object LowerNullGetOrElse extends StatelessTransformer {
-    private def stableNullOperand(ast: Ast): Boolean =
-      ast match {
-        case _: ScalarValueLift  => true
-        case _: Ident            => true
-        case _: Constant         => true
-        case NullValue           => true
-        case Property(parent, _) => stableNullOperand(parent)
-        case _                   => false
-      }
-
-    override def apply(ast: Ast): Ast =
-      ast match {
-        case If(IsNotNullCheck(value), thenValue, otherwise)
-            if (value == thenValue && stableNullOperand(value)) =>
-          Infix(
-            List("COALESCE(", ", ", ")"),
-            List(apply(value), apply(otherwise)),
-            pure = true,
-            transparent = false,
-            quat = thenValue.quat
-          )
-        case other => super.apply(other)
-      }
-  }
-
   private object LowerStringNumericCasts extends StatelessTransformer {
     override def apply(ast: Ast): Ast =
       ast match {

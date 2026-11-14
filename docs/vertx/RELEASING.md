@@ -3,11 +3,13 @@
 Repository: `ffebr/zio-quill-vertx`. Maven group: `io.github.ffebr`.
 Registry: `https://maven.pkg.github.com/ffebr/zio-quill-vertx`.
 
-The first published version is `0.1.0-alpha.1`, tagged `vertx-v0.1.0-alpha.1`.
-Publication completed on 2026-11-12 through the fork's
-[Native Vert.x workflow](https://github.com/ffebr/zio-quill-vertx/actions/runs/43287367791).
+The latest published version is `0.1.0-alpha.2`, tagged `vertx-v0.1.0-alpha.2`.
+Publication completed on 2026-11-14 after all eight database/Scala jobs passed in
+the fork's [Native Vert.x workflow](https://github.com/ffebr/zio-quill-vertx/actions/runs/43613000269).
+It includes the general PostgreSQL parameter-binding fix. The original
+`0.1.0-alpha.1` remains immutable and has known lifted-NULL failures.
 
-- [Prerelease](https://github.com/ffebr/zio-quill-vertx/releases/tag/vertx-v0.1.0-alpha.1)
+- [Prerelease](https://github.com/ffebr/zio-quill-vertx/releases/tag/vertx-v0.1.0-alpha.2)
 - [Scala 2.13 package](https://github.com/ffebr/zio-quill-vertx/packages/3386899)
 - [Scala 2.12 package](https://github.com/ffebr/zio-quill-vertx/packages/3386904)
 
@@ -41,13 +43,38 @@ The manual workflow entry accepts an existing tag, checks out that tag for
 both testing and publishing, and applies the same test gate. This also allows
 starting the first release after enabling Actions on a newly created fork.
 
+## Published application verification
+
+The [alpha.2 registry-consumer run](https://github.com/ffebr/zio-quill-vertx/actions/runs/43614128553)
+passed against app commit `6b23740cf39dc6baab19f9c7f80e07572ecbd7c7`:
+197 original conformance steps per executor, identical golden transcripts,
+14 JDBC / 16 native unit tests, and exact-version runtime/package audits.
+The app's [own CI](https://github.com/ffebr/vertx-jdbc-challenge/actions/runs/43612440268)
+also passed and delivered both nonroot images to its fork's GHCR registry.
+
+For a coordinated release, push the driver commit, update the application's
+`main` source pin to that commit, and wait for application CI before tagging the
+driver commit. The consumer intentionally rejects a mismatched source pin.
+
+After a successful tag release, `vertx-published-consumer.yml` resolves the
+Conduit app's `main` once and checks out that immutable commit. Its JDBC executor
+uses the same source revision as the release tag; native resolves the published
+GitHub Packages artifacts. The check audits all six native Quill runtime jars,
+builds and tests both executors, runs the original API suite and golden
+transcripts, and verifies package manifests and checksums.
+
+The workflow uses this driver's repository token with `packages: read`, so the
+application repository does not need cross-repository package credentials.
+Manual dispatch accepts an immutable version and app commit and enforces the
+same source-pin and runtime-closure checks.
+
 ## Consume a published version
 
 ```scala
 resolvers += "ffebr Quill Vert.x" at
   "https://maven.pkg.github.com/ffebr/zio-quill-vertx"
 
-libraryDependencies += "io.github.ffebr" %% "quill-vertx-zio" % "0.1.0-alpha.1"
+libraryDependencies += "io.github.ffebr" %% "quill-vertx-zio" % "0.1.0-alpha.2"
 
 credentials += Credentials(
   "GitHub Package Registry",
